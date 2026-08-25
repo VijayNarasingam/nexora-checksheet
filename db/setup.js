@@ -1,4 +1,4 @@
-try { require('dotenv').config(); } catch (e) {}
+try { require('dotenv').config({ override: false }); } catch (e) {}
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
@@ -7,9 +7,11 @@ const isPg = !!DATABASE_URL;
 
 let db; // sqlite instance if isPg false
 let pool; // pg Pool if isPg true
-
-// Helpers that will be exported
 let get, all, run, query;
+
+// Promise that resolves when schema is ready (important for Vercel cold starts)
+let _readyResolve;
+const ready = new Promise(resolve => { _readyResolve = resolve; });
 
 if (isPg) {
   const { Pool } = require('pg');
@@ -22,9 +24,7 @@ if (isPg) {
     let idx = 0;
     return text.replace(/\?/g, () => `$${++idx}`);
   };
-  query = async (text, params = []) => {
-    return pool.query(toPg(text), params);
-  };
+  query = async (text, params = []) => pool.query(toPg(text), params);
   get = async (text, params = []) => {
     const res = await pool.query(toPg(text), params);
     return res.rows[0];
@@ -34,7 +34,6 @@ if (isPg) {
     return res.rows;
   };
   run = async (text, params = []) => {
-    // Auto-add RETURNING id for INSERT without it (for lastInsertRowid)
     let pgText = toPg(text);
     if (/^\s*INSERT/i.test(pgText) && !/RETURNING/i.test(pgText)) {
       pgText = pgText.replace(/;\s*$/, '') + ' RETURNING id';
@@ -76,10 +75,9 @@ if (isPg) {
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
-      // GIN index for JSONB if not exists
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_inspections_user_id ON inspections(user_id)`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_inspections_type ON inspections(inspection_type)`);
-      const adminExists = await get('SELECT id FROM users WHERE employee_id = $1', ['ADMIN001']);
+      const adminExists = await get('SELECT id FROM users WHERE employee_id = ?', ['ADMIN001']);
       if (!adminExists) {
         const hashedPassword = bcrypt.hashSync('admin123', 10);
         await pool.query(
@@ -91,89 +89,107 @@ if (isPg) {
       console.log('Postgres DB ready (Supabase):', DATABASE_URL.split('@')[1]?.split('/')[0] || 'configured');
     } catch (e) {
       console.error('Postgres init error:', e.message);
+    } finally {
+      _readyResolve();
     }
   })();
+} else if (process.env.VERCEL === '1') {
+  // Vercel serverless has read-only filesystem — require DATABASE_URL
+  console.error('FATAL: DATABASE_URL not set on Vercel. Set it in Vercel Dashboard → Settings → Environment Variables → DATABASE_URL=postgresql://... (Supabase). SQLite not supported on Vercel.');
+  const errMsg = 'Database not configured. Set DATABASE_URL env var to your Supabase Postgres URL.';
+  query = get = all = run = async () => { throw new Error(errMsg); };
+  // Resolve ready to avoid hanging
+  _readyResolve();
 } else {
-  const Database = require('better-sqlite3');
-  const dbPath = process.env.DATABASE_PATH || path.join(__dirname, 'checksheet.db');
-  try { require('fs').mkdirSync(path.dirname(dbPath), { recursive: true }); } catch (e) {}
-  db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      employee_id TEXT UNIQUE NOT NULL,
-      name TEXT NOT NULL,
-      email TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      role TEXT DEFAULT 'inspector',
-      is_verified INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS inspections (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      inspection_type TEXT NOT NULL,
-      form_data TEXT NOT NULL,
-      status TEXT DEFAULT 'draft',
-      result TEXT DEFAULT '',
-      remarks TEXT DEFAULT '',
-      inspected_by TEXT DEFAULT '',
-      approved_by TEXT DEFAULT '',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-  `);
-  const adminExists = db.prepare('SELECT id FROM users WHERE employee_id = ?').get('ADMIN001');
-  if (!adminExists) {
-    const hashedPassword = bcrypt.hashSync('admin123', 10);
-    db.prepare(`
-      INSERT INTO users (employee_id, name, email, password, role, is_verified)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run('ADMIN001', 'System Admin', 'admin@nexora.com', hashedPassword, 'admin', 1);
-    console.log('Default admin created (sqlite): ADMIN001 / admin123');
+  // Local SQLite fallback
+  let Database;
+  try {
+    Database = require('better-sqlite3');
+  } catch (e) {
+    console.error('better-sqlite3 not available and DATABASE_URL not set. Set DATABASE_URL for Vercel/Supabase or install better-sqlite3 for local dev.');
+    const errMsg = 'Database not configured. Set DATABASE_URL env var.';
+    query = get = all = run = async () => { throw new Error(errMsg); };
+    _readyResolve();
+    Database = null;
   }
+  if (Database) {
+    const dbPath = process.env.DATABASE_PATH || path.join(__dirname, 'checksheet.db');
+    try { require('fs').mkdirSync(path.dirname(dbPath), { recursive: true }); } catch (e) {}
+    db = new Database(dbPath);
+    db.pragma('journal_mode = WAL');
 
-  // Async wrappers for sqlite so routes can use await uniformly
-  query = async (text, params = []) => {
-    // Convert PG $1 style to ? for sqlite if needed; routes now use separate branches, but keep simple
-    const stmt = db.prepare(text);
-    // Try to detect query type
-    if (/^\s*SELECT/i.test(text)) {
-      const rows = stmt.all(...params);
-      return { rows };
-    } else {
-      const info = stmt.run(...params);
-      return { rows: [], rowCount: info.changes, ...info };
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        role TEXT DEFAULT 'inspector',
+        is_verified INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS inspections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        inspection_type TEXT NOT NULL,
+        form_data TEXT NOT NULL,
+        status TEXT DEFAULT 'draft',
+        result TEXT DEFAULT '',
+        remarks TEXT DEFAULT '',
+        inspected_by TEXT DEFAULT '',
+        approved_by TEXT DEFAULT '',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      )
+    `);
+    const adminExists = db.prepare('SELECT id FROM users WHERE employee_id = ?').get('ADMIN001');
+    if (!adminExists) {
+      const hashedPassword = bcrypt.hashSync('admin123', 10);
+      db.prepare(`
+        INSERT INTO users (employee_id, name, email, password, role, is_verified)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('ADMIN001', 'System Admin', 'admin@nexora.com', hashedPassword, 'admin', 1);
+      console.log('Default admin created (sqlite): ADMIN001 / admin123');
     }
-  };
-  get = async (text, params = []) => {
-    return db.prepare(text).get(...params);
-  };
-  all = async (text, params = []) => {
-    return db.prepare(text).all(...params);
-  };
-  run = async (text, params = []) => {
-    const info = db.prepare(text).run(...params);
-    return { lastInsertRowid: info.lastInsertRowid, changes: info.changes };
-  };
+    _readyResolve();
+
+    query = async (text, params = []) => {
+      const stmt = db.prepare(text);
+      if (/^\s*SELECT/i.test(text)) {
+        const rows = stmt.all(...params);
+        return { rows };
+      } else {
+        const info = stmt.run(...params);
+        return { rows: [], rowCount: info.changes, ...info };
+      }
+    };
+    get = async (text, params = []) => db.prepare(text).get(...params);
+    all = async (text, params = []) => db.prepare(text).all(...params);
+    run = async (text, params = []) => {
+      const info = db.prepare(text).run(...params);
+      return { lastInsertRowid: info.lastInsertRowid, changes: info.changes };
+    };
+  } else if (!query) {
+    // Fallback if Database not loaded
+    query = get = all = run = async () => { throw new Error('Database not configured'); };
+    _readyResolve();
+  }
 }
 
-// Export dual-mode helpers + raw instances for advanced use
 module.exports = {
   isPg,
   pool,
   db,
+  ready,
   query,
   get,
   all,
   run,
-  // Backward compat: if sqlite, module.exports itself was db; keep db property plus direct prepare for any old code
-  prepare: isPg ? undefined : (sql) => db.prepare(sql),
-  exec: isPg ? undefined : (sql) => db.exec(sql),
-  pragma: isPg ? undefined : (p) => db.pragma(p),
+  prepare: isPg || !db ? undefined : (sql) => db.prepare(sql),
+  exec: isPg || !db ? undefined : (sql) => db.exec(sql),
+  pragma: isPg || !db ? undefined : (p) => db.pragma(p),
 };
