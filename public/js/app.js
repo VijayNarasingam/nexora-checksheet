@@ -135,7 +135,7 @@ const App = {
       const all = await this.api('/api/inspections/all-inspections');
       if (!all.length) { container.innerHTML = `<div class="empty-state"><div class="empty-state-icon"><i data-lucide="inbox"></i></div><h3>No submissions yet</h3><p>Fill a category form to see recent submissions here.</p></div>`; this.refreshIcons(); return; }
       const recent = all.slice(0, 10);
-      const esc = (v) => (v===undefined||v===null||v===''? '—' : String(v).replace(/</g,'&lt;'));
+      const escDash = (v) => (v===undefined||v===null||v===''? '—' : esc(v));
       let html = `<div class="table-wrap"><table class="data-table"><thead><tr><th>Date & Time</th><th>Employee ID</th><th>Employee Name</th><th>Category</th><th>Roll No.</th><th style="text-align:right">View</th></tr></thead><tbody>`;
       recent.forEach(rec => {
         const f = rec.form_data || {};
@@ -169,16 +169,18 @@ const App = {
   // ============================================================
   renderForm() {
     const type = this.currentView;
-    const forms = { pdi:this.renderPDIForm, inprocess:this.renderInprocessForm, tape:this.renderTapeForm, lamination:this.renderLaminationForm };
-    if (!forms[type]) return `${this.renderHeader()}<main class="main-content"><div class="alert alert-error">Unknown form category: ${type}</div></main>`;
-    return `${this.renderHeader()}<main class="main-content"><button class="back-btn" onclick="App.navigate('dashboard')"><i data-lucide="arrow-left"></i> Back to Dashboard</button><div class="form-container"><div class="form-header"><h2><i data-lucide="${this.getTypeIcon(type)}"></i> ${this.getTypeLabel(type)} Inspection</h2></div><form id="inspection-form" onsubmit="App.handleSubmit(event,'${type}')"><div class="form-body"><div id="form-alert"></div>${forms[type].call(this)}</div><div class="form-footer"><button type="button" class="btn btn-outline" onclick="App.navigate('dashboard')">Cancel</button><button type="submit" class="btn btn-primary btn-lg"><i data-lucide="send"></i> Submit Inspection</button></div></form></div></main>`;
+    const formMap = { pdi:'renderPDIForm', inprocess:'renderInprocessForm', tape:'renderTapeForm', lamination:'renderLaminationForm' };
+    const renderer = formMap[type];
+    if (!renderer) return `${this.renderHeader()}<main class="main-content"><div class="alert alert-error">Unknown form category: ${esc(type)}</div></main>`;
+    return `${this.renderHeader()}<main class="main-content"><button class="back-btn" onclick="App.navigate('dashboard')"><i data-lucide="arrow-left"></i> Back to Dashboard</button><div class="form-container"><div class="form-header"><h2><i data-lucide="${this.getTypeIcon(type)}"></i> ${this.getTypeLabel(type)} Inspection</h2></div><form id="inspection-form" onsubmit="App.handleSubmit(event,'${type}')"><div class="form-body"><div id="form-alert"></div>${FormRenderers[renderer](this.currentUser)}</div><div class="form-footer"><button type="button" class="btn btn-outline" onclick="App.navigate('dashboard')">Cancel</button><button type="submit" class="btn btn-primary btn-lg"><i data-lucide="send"></i> Submit Inspection</button></div></form></div></main>`;
   },
 
   async handleSubmit(e, type) {
     e.preventDefault();
-    const collectors = { pdi:this.collectPDI, inprocess:this.collectInprocess, tape:this.collectTapePlant, lamination:this.collectLamination };
-    if (!collectors[type]) { document.getElementById('form-alert').innerHTML = `<div class="alert alert-error">Unknown category: ${type}</div>`; return; }
-    const data = collectors[type].call(this);
+    const collectorMap = { pdi:'collectPDI', inprocess:'collectInprocess', tape:'collectTapePlant', lamination:'collectLamination' };
+    const collector = collectorMap[type];
+    if (!collector) { document.getElementById('form-alert').innerHTML = `<div class="alert alert-error">Unknown category: ${esc(type)}</div>`; return; }
+    const data = FormCollectors[collector]();
     try {
       await this.api('/api/inspections/submit', { method:'POST', body:JSON.stringify({ inspection_type:type, form_data:data, remarks:data.observation||data.remarks||'', inspected_by:data.inspected_by||data.prepared_by||data.checked_by||this.currentUser.name, approved_by:data.approved_by||data.verified_by||'' }) });
       // Show success message and stay on form
@@ -245,7 +247,7 @@ const App = {
         <span style="font-size:0.75rem;color:var(--gray-500)">All roll data for this category shown below — each row is one roll/sample/entry. Click <strong>View</strong> to open that roll's parent record as A4 document (record-specific download).</span>
       </div>`;
 
-      const esc = (v) => (v===undefined||v===null||v===''? '—' : String(v).replace(/</g,'&lt;'));
+      const escDash = (v) => (v===undefined||v===null||v===''? '—' : esc(v));
 
       if (cat === 'pdi') {
         html += `<div class="table-wrap"><table class="data-table"><thead><tr><th>#</th><th>Date</th><th>W/O</th><th>Customer</th><th>Roll No</th><th>Weight</th><th>Width</th><th>GSM</th><th>Dia</th><th>Thickness</th><th>Label</th><th>Print</th><th>Core</th><th>Result</th><th style="text-align:right">View</th></tr></thead><tbody>`;
@@ -340,8 +342,18 @@ const App = {
 
   // Helper to build A4 HTML for exactly one record (no global data included)
   buildA4Content(data) {
-    const f = data.form_data;
     const type = data.inspection_type;
+    // Recursively escape all string values in form_data for XSS safety
+    const sanitizeObj = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+      if (Array.isArray(obj)) return obj.map(sanitizeObj);
+      const safe = {};
+      for (const [k, v] of Object.entries(obj)) {
+        safe[k] = typeof v === 'string' ? esc(v) : (v && typeof v === 'object' ? sanitizeObj(v) : v);
+      }
+      return safe;
+    };
+    const f = sanitizeObj(data.form_data);
     let content = '';
 
     if (type === 'pdi') {
@@ -445,11 +457,11 @@ const App = {
   downloadA4() { this.downloadCurrentDocument(); },
 
   // ============================================================
-  // ===== FORM RENDERERS =====
+  // ===== FORM ADD-ENTRY HELPERS (delegates to FormRenderers in forms.js) =====
   // ============================================================
 
-  // --- PDI ---
-  renderPDIForm() {
+  // --- PDI (form rendering delegated to FormRenderers) ---
+  _pdiFormRemoved() {
     return `<div class="form-section"><div class="form-section-title"><i data-lucide="info"></i> General Information</div><div class="form-section-grid">
       <div class="form-group"><label>Date of Inspection</label><input type="date" id="pdi-date" required></div>
       <div class="form-group"><label>Work Order No.</label><input type="text" id="pdi-wo" placeholder="W72600095" required></div>
@@ -491,7 +503,7 @@ const App = {
     </div></div>`;
   },
 
-  addPDIRoll() { this.pdiRollCount++; const c=document.getElementById('pdi-rolls'); const w=document.createElement('div'); w.innerHTML=this._pdiRollHTML(this.pdiRollCount); const btn=c.querySelector('button'); c.insertBefore(w.firstElementChild,btn); this.refreshIcons(); },
+  addPDIRoll() { this.pdiRollCount++; const c=document.getElementById('pdi-rolls'); const w=document.createElement('div'); w.innerHTML=FormRenderers._pdiRollHTML(this.pdiRollCount); const btn=c.querySelector('button'); c.insertBefore(w.firstElementChild,btn); this.refreshIcons(); },
 
   // --- Inprocess ---
   renderInprocessForm() {
@@ -528,7 +540,7 @@ const App = {
     </div></div>`;
   },
 
-  addInprocessEntry() { this._ipEntryCount++; const c=document.getElementById('ip-entries'); const w=document.createElement('div'); w.innerHTML=this._inprocessEntryHTML(this._ipEntryCount); const btn=c.querySelector('button'); c.insertBefore(w.firstElementChild,btn); this.refreshIcons(); },
+  addInprocessEntry() { this._ipEntryCount++; const c=document.getElementById('ip-entries'); const w=document.createElement('div'); w.innerHTML=FormRenderers._inprocessEntryHTML(this._ipEntryCount); const btn=c.querySelector('button'); c.insertBefore(w.firstElementChild,btn); this.refreshIcons(); },
 
   // --- Tape Plant ---
   renderTapeForm() {
@@ -569,7 +581,7 @@ const App = {
     </div></div>`;
   },
 
-  addTapeSample() { this._tpSampleCount++; const c=document.getElementById('tp-samples'); const w=document.createElement('div'); w.innerHTML=this._tapeSampleHTML(this._tpSampleCount); const btn=c.querySelector('button'); c.insertBefore(w.firstElementChild,btn); this.refreshIcons(); },
+  addTapeSample() { this._tpSampleCount++; const c=document.getElementById('tp-samples'); const w=document.createElement('div'); w.innerHTML=FormRenderers._tapeSampleHTML(this._tpSampleCount); const btn=c.querySelector('button'); c.insertBefore(w.firstElementChild,btn); this.refreshIcons(); },
 
   // --- Lamination ---
   renderLaminationForm() {
@@ -613,7 +625,7 @@ const App = {
     </div>`;
   },
 
-  addLaminationEntry() { this._lmEntryCount++; const c=document.getElementById('lm-entries'); const w=document.createElement('div'); w.innerHTML=this._laminationEntryHTML(this._lmEntryCount); const btn=c.querySelector('button'); c.insertBefore(w.firstElementChild,btn); this.refreshIcons(); },
+  addLaminationEntry() { this._lmEntryCount++; const c=document.getElementById('lm-entries'); const w=document.createElement('div'); w.innerHTML=FormRenderers._laminationEntryHTML(this._lmEntryCount); const btn=c.querySelector('button'); c.insertBefore(w.firstElementChild,btn); this.refreshIcons(); },
 
   // ============================================================
   // ===== COLLECTORS — 4 Categories Only =====
@@ -663,8 +675,5 @@ const App = {
   async rejectUser(id) { if(!confirm('Remove?'))return; try { await this.api(`/api/auth/reject-user/${id}`,{method:'POST'}); this.loadAdmin(); } catch(e) { alert(e.message); } }
 };
 
-// Helper functions
-function gv(id) { const el=document.getElementById(id); return el?el.value:''; }
-function gq(parent,sel) { const el=parent.querySelector(sel); return el?el.value:''; }
-
+// Form helpers delegated to utils.js and forms.js
 document.addEventListener('DOMContentLoaded', () => App.init());
