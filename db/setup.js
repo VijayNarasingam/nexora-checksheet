@@ -86,6 +86,16 @@ if (isPg) {
         );
         console.log('Default admin created (pg): ADMIN001 / admin123');
       }
+      // Demo inspector for UI demo credentials EMP001/test123 — seed if missing
+      const empExists = await get('SELECT id FROM users WHERE employee_id = ?', ['EMP001']);
+      if (!empExists) {
+        const hashedEmp = bcrypt.hashSync('test123', 10);
+        await pool.query(
+          `INSERT INTO users (employee_id, name, email, password, role, is_verified) VALUES ($1,$2,$3,$4,$5,$6)`,
+          ['EMP001', 'Test Inspector', 'emp001@nexora.com', hashedEmp, 'inspector', 1]
+        );
+        console.log('Demo inspector created (pg): EMP001 / test123');
+      }
       console.log('Postgres DB ready (Supabase):', DATABASE_URL.split('@')[1]?.split('/')[0] || 'configured');
     } catch (e) {
       console.error('Postgres init error:', e.message);
@@ -154,6 +164,15 @@ if (isPg) {
         VALUES (?, ?, ?, ?, ?, ?)
       `).run('ADMIN001', 'System Admin', 'admin@nexora.com', hashedPassword, 'admin', 1);
       console.log('Default admin created (sqlite): ADMIN001 / admin123');
+    }
+    const empExists = db.prepare('SELECT id FROM users WHERE employee_id = ?').get('EMP001');
+    if (!empExists) {
+      const hashedEmp = bcrypt.hashSync('test123', 10);
+      db.prepare(`
+        INSERT INTO users (employee_id, name, email, password, role, is_verified)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('EMP001', 'Test Inspector', 'emp001@nexora.com', hashedEmp, 'inspector', 1);
+      console.log('Demo inspector created (sqlite): EMP001 / test123');
     }
     _readyResolve();
 
