@@ -1,4 +1,4 @@
-try { require('dotenv').config({ override: false }); } catch (e) {}
+if (process.env.VERCEL !== '1') { try { require('dotenv').config({ override: false }); } catch (e) {} }
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
@@ -100,7 +100,7 @@ if (isPg) {
     } catch (e) {
       console.error('Postgres init error:', e.message);
     } finally {
-      _readyResolve();
+      _readyResolve && _readyResolve();
     }
   })();
 } else if (process.env.VERCEL === '1') {

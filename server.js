@@ -1,4 +1,4 @@
-try { require('dotenv').config(); } catch (e) {}
+if (process.env.VERCEL !== '1') { try { require('dotenv').config(); } catch (e) {} }
 const express = require('express');
 const path = require('path');
 const cookieParser = require('cookie-parser');

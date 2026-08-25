@@ -34,3 +34,8 @@ tmp/
 temp/
 .opencode/
 .freebuff/
+# Jest test DBs
+__tests__/*.db
+__tests__/*.db-shm
+__tests__/*.db-wal
+__tests__/*.sqlite

@@ -4,12 +4,13 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../db/setup');
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET && process.env.NODE_ENV === 'production') {
-  console.error('FATAL: JWT_SECRET environment variable is required in production!');
-  process.exit(1);
+const JWT_SECRET_KEY = process.env.JWT_SECRET || 'nexora-checksheet-secret-key-2026';
+if (!process.env.JWT_SECRET) {
+  console.warn('⚠️  WARNING: JWT_SECRET not set. Using fallback key. Set JWT_SECRET in Vercel Dashboard → Settings → Environment Variables for production.');
 }
-const JWT_SECRET_KEY = JWT_SECRET || 'nexora-checksheet-secret-key-2026';
+if (process.env.VERCEL === '1' && !process.env.DATABASE_URL) {
+  console.error('❌ DATABASE_URL not set on Vercel. Set it in Vercel Dashboard → Settings → Environment Variables.');
+}
 
 // --- Input Validation Helpers ---
 const EMP_ID_REGEX = /^[A-Za-z0-9]{3,20}$/;
@@ -77,7 +78,11 @@ router.post('/register', async (req, res) => {
 
     res.json({ message: 'Registration successful. Waiting for admin approval.', userId: result.lastInsertRowid });
   } catch (err) {
-    res.status(500).json({ error: 'Registration failed' });
+    console.error('Registration error:', err.message);
+    if (err.message.includes('Database not configured')) {
+      return res.status(503).json({ error: 'Database not configured. Please contact administrator.' });
+    }
+    res.status(500).json({ error: 'Registration failed: ' + err.message });
   }
 });
 
@@ -126,7 +131,11 @@ router.post('/login', async (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ error: 'Login failed' });
+    console.error('Login error:', err.message);
+    if (err.message.includes('Database not configured')) {
+      return res.status(503).json({ error: 'Database not configured. Please contact administrator.' });
+    }
+    res.status(500).json({ error: 'Login failed: ' + err.message });
   }
 });
 

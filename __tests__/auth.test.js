@@ -4,7 +4,7 @@ const path = require('path');
 
 // Force SQLite for tests — must be set before any module loads
 process.env.JWT_SECRET = 'test-secret-key-for-jest';
-delete process.env.DATABASE_URL;
+process.env.DATABASE_URL = "";
 process.env.DATABASE_PATH = path.join(__dirname, 'test-auth.db');
 
 // Rebuild app for each test suite
