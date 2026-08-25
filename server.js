@@ -1,3 +1,4 @@
+try { require('dotenv').config(); } catch (e) {}
 const express = require('express');
 const path = require('path');
 const cookieParser = require('cookie-parser');
@@ -22,7 +23,12 @@ app.get('/{*splat}', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`CheckSheet App running at http://localhost:${PORT}`);
-  console.log('Default Admin: Employee ID: ADMIN001 / Password: admin123');
-});
+if (process.env.VERCEL !== '1') {
+  app.listen(PORT, () => {
+    console.log(`Nexora CheckSheet running at http://localhost:${PORT}`);
+    console.log('Default Admin: Employee ID: ADMIN001 / Password: admin123');
+    console.log('DB:', process.env.DATABASE_URL ? 'Supabase Postgres' : 'SQLite ' + (process.env.DATABASE_PATH || 'db/checksheet.db'));
+  });
+}
+
+module.exports = app;

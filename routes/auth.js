@@ -7,7 +7,7 @@ const db = require('../db/setup');
 const JWT_SECRET = process.env.JWT_SECRET || 'nexora-checksheet-secret-key-2026';
 
 // Register
-router.post('/register', (req, res) => {
+router.post('/register', async (req, res) => {
   try {
     const { employee_id, name, email, password } = req.body;
 
@@ -15,16 +15,16 @@ router.post('/register', (req, res) => {
       return res.status(400).json({ error: 'All fields are required' });
     }
 
-    const existing = db.prepare('SELECT id FROM users WHERE employee_id = ? OR email = ?').get(employee_id, email);
+    const existing = await db.get('SELECT id FROM users WHERE employee_id = ? OR email = ?', [employee_id, email]);
     if (existing) {
       return res.status(400).json({ error: 'Employee ID or Email already exists' });
     }
 
     const hashedPassword = bcrypt.hashSync(password, 10);
-    const result = db.prepare(`
-      INSERT INTO users (employee_id, name, email, password, role, is_verified)
-      VALUES (?, ?, ?, ?, 'inspector', 0)
-    `).run(employee_id, name, email, hashedPassword);
+    const result = await db.run(
+      `INSERT INTO users (employee_id, name, email, password, role, is_verified) VALUES (?, ?, ?, ?, 'inspector', 0)`,
+      [employee_id, name, email, hashedPassword]
+    );
 
     res.json({ message: 'Registration successful. Waiting for admin approval.', userId: result.lastInsertRowid });
   } catch (err) {
@@ -33,7 +33,7 @@ router.post('/register', (req, res) => {
 });
 
 // Login
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   try {
     const { employee_id, password } = req.body;
 
@@ -41,7 +41,7 @@ router.post('/login', (req, res) => {
       return res.status(400).json({ error: 'Employee ID and password are required' });
     }
 
-    const user = db.prepare('SELECT * FROM users WHERE employee_id = ?').get(employee_id);
+    const user = await db.get('SELECT * FROM users WHERE employee_id = ?', [employee_id]);
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -99,9 +99,9 @@ function adminMiddleware(req, res, next) {
 }
 
 // Get pending users (admin only)
-router.get('/pending-users', authMiddleware, adminMiddleware, (req, res) => {
+router.get('/pending-users', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const users = db.prepare('SELECT id, employee_id, name, email, role, is_verified, created_at FROM users WHERE is_verified = 0').all();
+    const users = await db.all('SELECT id, employee_id, name, email, role, is_verified, created_at FROM users WHERE is_verified = 0');
     res.json(users);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -109,9 +109,9 @@ router.get('/pending-users', authMiddleware, adminMiddleware, (req, res) => {
 });
 
 // Get all users (admin only)
-router.get('/all-users', authMiddleware, adminMiddleware, (req, res) => {
+router.get('/all-users', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const users = db.prepare('SELECT id, employee_id, name, email, role, is_verified, created_at FROM users').all();
+    const users = await db.all('SELECT id, employee_id, name, email, role, is_verified, created_at FROM users');
     res.json(users);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -119,9 +119,9 @@ router.get('/all-users', authMiddleware, adminMiddleware, (req, res) => {
 });
 
 // Verify user (admin only)
-router.post('/verify-user/:userId', authMiddleware, adminMiddleware, (req, res) => {
+router.post('/verify-user/:userId', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    db.prepare('UPDATE users SET is_verified = 1 WHERE id = ?').run(req.params.userId);
+    await db.run('UPDATE users SET is_verified = 1 WHERE id = ?', [req.params.userId]);
     res.json({ message: 'User verified successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -129,9 +129,9 @@ router.post('/verify-user/:userId', authMiddleware, adminMiddleware, (req, res) 
 });
 
 // Reject user (admin only)
-router.post('/reject-user/:userId', authMiddleware, adminMiddleware, (req, res) => {
+router.post('/reject-user/:userId', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    db.prepare('DELETE FROM users WHERE id = ?').run(req.params.userId);
+    await db.run('DELETE FROM users WHERE id = ?', [req.params.userId]);
     res.json({ message: 'User rejected and removed' });
   } catch (err) {
     res.status(500).json({ error: err.message });
