@@ -10,6 +10,7 @@ const App = {
   _tpSampleCount: 5,
   _lmEntryCount: 2,
   _tableCategory: null,
+  _verifiedUsers: [],
 
   init() {
     this.token = localStorage.getItem('token');
@@ -43,7 +44,7 @@ const App = {
     switch (this.currentPage) {
       case 'login': app.innerHTML = this.renderLogin(); break;
       case 'dashboard': app.innerHTML = this.renderDashboard(); this.loadDashboardRecent(); break;
-      case 'form': app.innerHTML = this.renderForm(); break;
+      case 'form': app.innerHTML = this.renderForm(); this.loadFormUsers(); break;
       case 'tables': app.innerHTML = this.renderTables(); break;
       case 'table-view': app.innerHTML = this.renderTableView(); this.loadTableView(); break;
       case 'view-document': app.innerHTML = this.renderViewDocument(); break;
@@ -167,12 +168,36 @@ const App = {
   // ============================================================
   // ===== FORM PAGE — Submit & Stay =====
   // ============================================================
+
+  // Load verified users for signature dropdowns (async after render)
+  async loadFormUsers() {
+    try {
+      const users = await this.api('/api/auth/verified-users');
+      this._verifiedUsers = users;
+      // Re-populate all signature selects on the form
+      document.querySelectorAll('.sig-select').forEach(sel => {
+        const field = sel.getAttribute('data-sig-field');
+        const currentVal = sel.value;
+        sel.innerHTML = users.map(u =>
+          `<option value="${u.name}"${u.name === currentVal ? ' selected' : ''}>${u.name} (${u.role || u.employee_id})</option>`
+        ).join('');
+        if (currentVal && !users.find(u => u.name === currentVal)) {
+          const opt = document.createElement('option');
+          opt.value = currentVal; opt.textContent = currentVal;
+          sel.prepend(opt);
+        }
+      });
+    } catch (err) {
+      console.warn('Could not load verified users:', err.message);
+    }
+  },
+
   renderForm() {
     const type = this.currentView;
     const formMap = { pdi:'renderPDIForm', inprocess:'renderInprocessForm', tape:'renderTapeForm', lamination:'renderLaminationForm' };
     const renderer = formMap[type];
     if (!renderer) return `${this.renderHeader()}<main class="main-content"><div class="alert alert-error">Unknown form category: ${esc(type)}</div></main>`;
-    return `${this.renderHeader()}<main class="main-content"><button class="back-btn" onclick="App.navigate('dashboard')"><i data-lucide="arrow-left"></i> Back to Dashboard</button><div class="form-container"><div class="form-header"><h2><i data-lucide="${this.getTypeIcon(type)}"></i> ${this.getTypeLabel(type)} Inspection</h2></div><form id="inspection-form" onsubmit="App.handleSubmit(event,'${type}')"><div class="form-body"><div id="form-alert"></div>${FormRenderers[renderer](this.currentUser)}</div><div class="form-footer"><button type="button" class="btn btn-outline" onclick="App.navigate('dashboard')">Cancel</button><button type="submit" class="btn btn-primary btn-lg"><i data-lucide="send"></i> Submit Inspection</button></div></form></div></main>`;
+    return `${this.renderHeader()}<main class="main-content"><button class="back-btn" onclick="App.navigate('dashboard')"><i data-lucide="arrow-left"></i> Back to Dashboard</button><div class="form-container"><div class="form-header"><h2><i data-lucide="${this.getTypeIcon(type)}"></i> ${this.getTypeLabel(type)} Inspection</h2></div><form id="inspection-form" onsubmit="App.handleSubmit(event,'${type}')"><div class="form-body"><div id="form-alert"></div>${FormRenderers[renderer](this.currentUser, this._verifiedUsers)}</div><div class="form-footer"><button type="button" class="btn btn-outline" onclick="App.navigate('dashboard')">Cancel</button><button type="submit" class="btn btn-primary btn-lg"><i data-lucide="send"></i> Submit Inspection</button></div></form></div></main>`;
   },
 
   async handleSubmit(e, type) {
@@ -503,7 +528,7 @@ const App = {
     </div></div>`;
   },
 
-  addPDIRoll() { this.pdiRollCount++; const c=document.getElementById('pdi-rolls'); const w=document.createElement('div'); w.innerHTML=FormRenderers._pdiRollHTML(this.pdiRollCount); const btn=c.querySelector('button'); c.insertBefore(w.firstElementChild,btn); this.refreshIcons(); },
+  addPDIRoll() { this.pdiRollCount++; const c=document.getElementById('pdi-rolls'); const w=document.createElement('div'); w.innerHTML=FormRenderers._pdiRollHTML(this.pdiRollCount); c.appendChild(w.firstElementChild); this.refreshIcons(); },
 
   // --- Inprocess ---
   renderInprocessForm() {
@@ -540,7 +565,7 @@ const App = {
     </div></div>`;
   },
 
-  addInprocessEntry() { this._ipEntryCount++; const c=document.getElementById('ip-entries'); const w=document.createElement('div'); w.innerHTML=FormRenderers._inprocessEntryHTML(this._ipEntryCount); const btn=c.querySelector('button'); c.insertBefore(w.firstElementChild,btn); this.refreshIcons(); },
+  addInprocessEntry() { this._ipEntryCount++; const c=document.getElementById('ip-entries'); const w=document.createElement('div'); w.innerHTML=FormRenderers._inprocessEntryHTML(this._ipEntryCount); c.appendChild(w.firstElementChild); this.refreshIcons(); },
 
   // --- Tape Plant ---
   renderTapeForm() {
@@ -581,7 +606,7 @@ const App = {
     </div></div>`;
   },
 
-  addTapeSample() { this._tpSampleCount++; const c=document.getElementById('tp-samples'); const w=document.createElement('div'); w.innerHTML=FormRenderers._tapeSampleHTML(this._tpSampleCount); const btn=c.querySelector('button'); c.insertBefore(w.firstElementChild,btn); this.refreshIcons(); },
+  addTapeSample() { this._tpSampleCount++; const c=document.getElementById('tp-samples'); const w=document.createElement('div'); w.innerHTML=FormRenderers._tapeSampleHTML(this._tpSampleCount); c.appendChild(w.firstElementChild); this.refreshIcons(); },
 
   // --- Lamination ---
   renderLaminationForm() {
@@ -625,7 +650,7 @@ const App = {
     </div>`;
   },
 
-  addLaminationEntry() { this._lmEntryCount++; const c=document.getElementById('lm-entries'); const w=document.createElement('div'); w.innerHTML=FormRenderers._laminationEntryHTML(this._lmEntryCount); const btn=c.querySelector('button'); c.insertBefore(w.firstElementChild,btn); this.refreshIcons(); },
+  addLaminationEntry() { this._lmEntryCount++; const c=document.getElementById('lm-entries'); const w=document.createElement('div'); w.innerHTML=FormRenderers._laminationEntryHTML(this._lmEntryCount); c.appendChild(w.firstElementChild); this.refreshIcons(); }, 
 
   // ============================================================
   // ===== COLLECTORS — 4 Categories Only =====

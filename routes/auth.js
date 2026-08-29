@@ -181,6 +181,16 @@ router.get('/all-users', authMiddleware, adminMiddleware, async (req, res) => {
   }
 });
 
+// Get verified users (for signature dropdowns — any authenticated user)
+router.get('/verified-users', authMiddleware, async (req, res) => {
+  try {
+    const users = await db.all('SELECT id, employee_id, name, role FROM users WHERE is_verified = 1');
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
 // Verify user (admin only)
 router.post('/verify-user/:userId', authMiddleware, adminMiddleware, async (req, res) => {
   try {

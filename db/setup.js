@@ -17,7 +17,9 @@ if (isPg) {
   const { Pool } = require('pg');
   pool = new Pool({
     connectionString: DATABASE_URL,
-    ssl: DATABASE_URL.includes('localhost') || DATABASE_URL.includes('127.0.0.1') ? false : { rejectUnauthorized: false },
+    ssl: (DATABASE_URL.includes('localhost') || DATABASE_URL.includes('127.0.0.1'))
+        ? false
+        : { rejectUnauthorized: false, sslmode: 'require' }
   });
 
   const toPg = (text) => {
@@ -96,7 +98,7 @@ if (isPg) {
         );
         console.log('Demo inspector created (pg): EMP001 / test123');
       }
-      console.log('Postgres DB ready (Supabase):', DATABASE_URL.split('@')[1]?.split('/')[0] || 'configured');
+      console.log('Postgres DB ready:', DATABASE_URL.split('@')[1]?.split('/')[0] || 'configured');
     } catch (e) {
       console.error('Postgres init error:', e.message);
     } finally {
@@ -105,8 +107,8 @@ if (isPg) {
   })();
 } else if (process.env.VERCEL === '1') {
   // Vercel serverless has read-only filesystem — require DATABASE_URL
-  console.error('FATAL: DATABASE_URL not set on Vercel. Set it in Vercel Dashboard → Settings → Environment Variables → DATABASE_URL=postgresql://... (Supabase). SQLite not supported on Vercel.');
-  const errMsg = 'Database not configured. Set DATABASE_URL env var to your Supabase Postgres URL.';
+  console.error('FATAL: DATABASE_URL not set on Vercel. Set it in Vercel Dashboard -> Settings -> Environment Variables. Get your URL from neon.tech (free).');
+  const errMsg = 'Database not configured. Set DATABASE_URL to your Neon connection string (neon.tech).';
   query = get = all = run = async () => { throw new Error(errMsg); };
   // Resolve ready to avoid hanging
   _readyResolve();

@@ -1,8 +1,24 @@
 // ===== Nexora CheckSheet — Form Renderers & Collectors =====
 
 const FormRenderers = {
+  // Helper: generate a <select> for signature fields
+  _sigSelect(id, users, defaultName) {
+    const opts = (users && users.length) ? users.map(u =>
+      `<option value="${u.name}"${u.name === defaultName ? ' selected' : ''}>${u.name} (${u.role || u.employee_id})</option>`
+    ).join('') : `<option value="${defaultName||''}" selected>${defaultName||'—'}</option>`;
+    return `<select id="${id}" class="sig-select" data-sig-field="${id}" style="width:100%">${opts}</select>`;
+  },
+
+  // Helper: generate signature section HTML
+  _sigSection(fields, users, currentUser) {
+    const grid = fields.map(f =>
+      `<div class="form-group"><label>${f.label}</label>${this._sigSelect(f.id, users, currentUser?.name || '')}</div>`
+    ).join('');
+    return `<div class="form-section"><div class="form-section-title"><i data-lucide="pen-tool"></i> Signatures</div><div class="form-section-grid">${grid}</div></div>`;
+  },
+
   // --- PDI ---
-  renderPDIForm(currentUser) {
+  renderPDIForm(currentUser, users) {
     return `<div class="form-section"><div class="form-section-title"><i data-lucide="info"></i> General Information</div><div class="form-section-grid">
       <div class="form-group"><label>Date of Inspection</label><input type="date" id="pdi-date" required></div>
       <div class="form-group"><label>Work Order No.</label><input type="text" id="pdi-wo" placeholder="W72600095" required></div>
@@ -23,11 +39,7 @@ const FormRenderers = {
     <div class="form-section"><div class="form-section-title"><i data-lucide="clipboard-list"></i> Result & Observation</div><div class="form-section-grid">
       <div class="form-group"><label>Result</label><select id="pdi-result"><option value="Accepted">Accepted</option><option value="Accepted under Deviation">Accepted under Deviation</option><option value="Rejected">Rejected</option></select></div>
       <div class="form-group"><label>No. of Deviations</label><input type="number" id="pdi-deviations" placeholder="0"></div>
-    </div><div class="form-group"><label>Observation</label><textarea id="pdi-observation" rows="3" placeholder="Enter observations..."></textarea></div></div>
-    <div class="form-section"><div class="form-section-title"><i data-lucide="pen-tool"></i> Signatures</div><div class="form-section-grid">
-      <div class="form-group"><label>Inspected By</label><input type="text" id="pdi-inspected-by" value="${currentUser?.name||''}" readonly tabindex="-1" style="background:var(--gray-50);cursor:not-allowed"></div>
-      <div class="form-group"><label>Approved By</label><input type="text" id="pdi-approved-by" value="${currentUser?.name||''}" readonly tabindex="-1" style="background:var(--gray-50);cursor:not-allowed"></div>
-    </div><p style="font-size:0.75rem;color:var(--gray-500);margin-top:8px"><i data-lucide="lock" style="width:12px;height:12px;display:inline;vertical-align:-1px"></i> Auto-filled with logged-in user &amp; locked — cannot be edited</p></div>`;
+    </div><div class="form-group"><label>Observation</label><textarea id="pdi-observation" rows="3" placeholder="Enter observations..."></textarea>    </div></div>${this._sigSection([{id:'pdi-inspected-by',label:'Inspected By'},{id:'pdi-approved-by',label:'Approved By'}], users, currentUser)}`;
   },
 
   _pdiRollHTML(n) {
@@ -45,7 +57,7 @@ const FormRenderers = {
   },
 
   // --- Inprocess ---
-  renderInprocessForm(currentUser) {
+  renderInprocessForm(currentUser, users) {
     return `<div class="form-section"><div class="form-section-title"><i data-lucide="info"></i> General</div><div class="form-section-grid">
       <div class="form-group"><label>Date</label><input type="date" id="ip-date" required></div>
       <div class="form-group"><label>Shift</label><select id="ip-shift"><option>Morning</option><option>Afternoon</option><option>Night</option></select></div>
@@ -54,12 +66,7 @@ const FormRenderers = {
     <div class="form-section" id="ip-entries"><div class="form-section-title"><i data-lucide="list"></i> Fabric Inspection Entries</div>
       ${[1].map(n => this._inprocessEntryHTML(n)).join('')}
       <button type="button" class="btn btn-outline btn-sm" style="margin-top:14px" onclick="App.addInprocessEntry()"><i data-lucide="plus"></i> Add Another Entry</button>
-    </div>
-    <div class="form-section"><div class="form-section-title"><i data-lucide="pen-tool"></i> Signatures</div><div class="form-section-grid">
-      <div class="form-group"><label>Prepared By</label><input type="text" id="ip-prepared" value="${currentUser?.name||''}" readonly tabindex="-1" style="background:var(--gray-50);cursor:not-allowed"></div>
-      <div class="form-group"><label>Verified By</label><input type="text" id="ip-verified" value="${currentUser?.name||''}" readonly tabindex="-1" style="background:var(--gray-50);cursor:not-allowed"></div>
-      <div class="form-group"><label>Approved By</label><input type="text" id="ip-approved" value="${currentUser?.name||''}" readonly tabindex="-1" style="background:var(--gray-50);cursor:not-allowed"></div>
-    </div><p style="font-size:0.75rem;color:var(--gray-500);margin-top:8px"><i data-lucide="lock" style="width:12px;height:12px;display:inline;vertical-align:-1px"></i> Auto-filled with logged-in user &amp; locked — cannot be edited</p></div>`;
+    </div>${this._sigSection([{id:'ip-prepared',label:'Prepared By'},{id:'ip-verified',label:'Verified By'},{id:'ip-approved',label:'Approved By'}], users, currentUser)}`;
   },
 
   _inprocessEntryHTML(n) {
@@ -80,7 +87,7 @@ const FormRenderers = {
   },
 
   // --- Tape Plant ---
-  renderTapeForm(currentUser) {
+  renderTapeForm(currentUser, users) {
     return `<div class="form-section"><div class="form-section-title"><i data-lucide="info"></i> General</div><div class="form-section-grid">
       <div class="form-group"><label>Plant No.</label><input type="text" id="tp-plant" required></div>
       <div class="form-group"><label>Date</label><input type="date" id="tp-date" required></div>
@@ -102,11 +109,7 @@ const FormRenderers = {
       <div class="form-group"><label>Die</label><input type="text" id="tp-die"></div>
       <div class="form-group"><label>Stretch Ratio</label><input type="text" id="tp-stretch"></div>
       <div class="form-group"><label>Annealing %</label><input type="text" id="tp-anneal-pct"></div>
-    </div></div>
-    <div class="form-section"><div class="form-section-title"><i data-lucide="pen-tool"></i> Signatures</div><div class="form-section-grid">
-      <div class="form-group"><label>Prepared By</label><input type="text" id="tp-prepared" value="${currentUser?.name||''}" readonly tabindex="-1" style="background:var(--gray-50);cursor:not-allowed"></div>
-      <div class="form-group"><label>Checked By</label><input type="text" id="tp-checked" value="${currentUser?.name||''}" readonly tabindex="-1" style="background:var(--gray-50);cursor:not-allowed"></div>
-    </div><p style="font-size:0.75rem;color:var(--gray-500);margin-top:8px"><i data-lucide="lock" style="width:12px;height:12px;display:inline;vertical-align:-1px"></i> Auto-filled with logged-in user &amp; locked — cannot be edited</p></div>`;
+    </div></div>${this._sigSection([{id:'tp-prepared',label:'Prepared By'},{id:'tp-checked',label:'Checked By'}], users, currentUser)}`;
   },
 
   _tapeSampleHTML(n) {
@@ -119,7 +122,7 @@ const FormRenderers = {
   },
 
   // --- Lamination ---
-  renderLaminationForm(currentUser) {
+  renderLaminationForm(currentUser, users) {
     return `<div class="form-section"><div class="form-section-title"><i data-lucide="info"></i> General</div><div class="form-section-grid">
       <div class="form-group"><label>Date</label><input type="date" id="lm-date" required></div>
       <div class="form-group"><label>Shift</label><select id="lm-shift"><option>Morning</option><option>Afternoon</option><option>Night</option></select></div>
@@ -128,11 +131,7 @@ const FormRenderers = {
     <div class="form-section" id="lm-entries"><div class="form-section-title"><i data-lucide="list"></i> Roll Inspection Entries</div>
       ${[1,2].map(n => this._laminationEntryHTML(n)).join('')}
       <button type="button" class="btn btn-outline btn-sm" style="margin-top:14px" onclick="App.addLaminationEntry()"><i data-lucide="plus"></i> Add Another Roll</button>
-    </div>
-    <div class="form-section"><div class="form-section-title"><i data-lucide="pen-tool"></i> Signatures</div><div class="form-section-grid">
-      <div class="form-group"><label>Checked By</label><input type="text" id="lm-checked" value="${currentUser?.name||''}" readonly tabindex="-1" style="background:var(--gray-50);cursor:not-allowed"></div>
-      <div class="form-group"><label>Approved By</label><input type="text" id="lm-approved" value="${currentUser?.name||''}" readonly tabindex="-1" style="background:var(--gray-50);cursor:not-allowed"></div>
-    </div><p style="font-size:0.75rem;color:var(--gray-500);margin-top:8px"><i data-lucide="lock" style="width:12px;height:12px;display:inline;vertical-align:-1px"></i> Auto-filled with logged-in user &amp; locked — cannot be edited</p></div>`;
+    </div>${this._sigSection([{id:'lm-checked',label:'Checked By'},{id:'lm-approved',label:'Approved By'}], users, currentUser)}`;
   },
 
   _laminationEntryHTML(n) {

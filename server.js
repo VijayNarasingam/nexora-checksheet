@@ -36,7 +36,7 @@ app.get('/api/health', async (req, res) => {
       res.json({ status: 'ok', db: 'SQLite', isPg: false });
     } else {
       const err = process.env.VERCEL === '1' && !process.env.DATABASE_URL
-        ? 'DATABASE_URL not set on Vercel. Set it in Vercel Dashboard → Settings → Environment Variables → DATABASE_URL=postgresql://... (Supabase). SQLite not supported on Vercel.'
+        ? 'DATABASE_URL not set. Get your free Postgres URL from neon.tech and add it as DATABASE_URL in Vercel env vars.'
         : 'Database not configured';
       res.status(500).json({ status: 'error', error: err, isPg: db.isPg, hasPool: !!db.pool, hasDb: !!db.db });
     }
